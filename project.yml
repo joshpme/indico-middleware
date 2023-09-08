@@ -1,0 +1,16 @@
+packages:
+  - name: indico
+    environment:
+      INDICO_AUTH: "${INDICO_AUTH}"
+      MONGO_AUTH: "${MONGO_AUTH}"
+      SPACES_KEY: "${SPACES_KEY}"
+      SPACES_SECRET: "${SPACES_SECRET}"
+    functions:
+      - name: fetch
+        runtime: php:8.2
+        limits:
+          timeout: 60000
+      - name: author-title
+        runtime: php:8.2
+        limits:
+          timeout: 60000

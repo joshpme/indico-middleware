@@ -1,0 +1,6 @@
+.deployed
+lib/vendor
+__deployer__.zip
+.DS_Store
+.env
+.idea
