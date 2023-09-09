@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -14,13 +13,6 @@ import (
 	"sync"
 	"time"
 )
-
-func init() {
-	// Load the environment variables from the .env file
-	if err := godotenv.Load(); err != nil {
-		fmt.Println("Error loading .env file:", err)
-	}
-}
 
 func fetch(url string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)

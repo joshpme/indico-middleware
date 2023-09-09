@@ -3,31 +3,34 @@ packages:
     environment:
       INDICO_AUTH: "${INDICO_AUTH}"
       MONGO_AUTH: "${MONGO_AUTH}"
-      SPACES_KEY: "${SPACES_KEY}"
-      SPACES_SECRET: "${SPACES_SECRET}"
     functions:
+      - name: events
+        runtime: go:1.20
+        web: false
+        limits:
+          timeout: 15000
+        triggers:
+        - name: events
+          sourceType: scheduler
+          sourceDetails:
+            cron: "0 0 * * *"
+      - name: timetables
+        runtime: go:1.20
+        web: false
+        limits:
+          timeout: 30000
+        triggers:
+        - name: timetables
+          sourceType: scheduler
+          sourceDetails:
+            cron: "15 0 * * *"
       - name: contributions
         runtime: go:1.20
         web: false
         limits:
           timeout: 180000
-      - name: events
-        runtime: go:1.20
-        web: false
         triggers:
-          - name: find-conferences
+          - name: contributions
             sourceType: scheduler
             sourceDetails:
-              cron: '0 0 * * *'
-        limits:
-          timeout: 180000
-      - name: timetables
-        runtime: go:1.20
-        web: false
-        limits:
-          timeout: 180000
-        triggers:
-          - name: find-timetables
-            sourceType: scheduler
-            sourceDetails:
-              cron: '0 * * * *'
+              cron: "30 0 * * *"

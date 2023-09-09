@@ -1,91 +1,109 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
+	"time"
 )
 
-func connect() (*s3.S3, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region:      aws.String("ap-southeast-2"),
-		Endpoint:    aws.String("https://syd1.digitaloceanspaces.com"),
-		Credentials: credentials.NewStaticCredentials(os.Getenv("SPACES_KEY"), os.Getenv("SPACES_SECRET"), ""),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return s3.New(sess), nil
+type MongoConference struct {
+	ID  int       `bson:"_id"`
+	End time.Time `bson:"end"`
 }
 
-func upload(space *s3.S3, name string, contents string) error {
-	_, err := space.PutObject(&s3.PutObjectInput{
-		Bucket: aws.String("indico"),
-		Key:    aws.String(name),
-		Body:   strings.NewReader(contents),
-		ACL:    aws.String("private"),
-	})
-	return err
+type MongoContribution struct {
+	ID int `bson:"_id"`
 }
 
-func download(space *s3.S3, name string) (string, error) {
-	resp, err := space.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String("indico"),
-		Key:    aws.String(name),
-	})
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	return string(body), nil
+type IndicoCustomField struct {
+	ID    int    `json:"id"`
+	Value string `json:"value"`
+	Name  string `json:"name"`
 }
 
-func getIds(data map[string]interface{}) []float64 {
-	var ids []float64
-	results := data["results"].([]interface{})
-	for _, conference := range results {
-		conferenceMap := conference.(map[string]interface{})
-		sessions := conferenceMap["sessions"].([]interface{})
-		for _, confSession := range sessions {
-			sessionMap := confSession.(map[string]interface{})
-			contributions := sessionMap["contributions"].([]interface{})
-			for _, entry := range contributions {
-				entryMap := entry.(map[string]interface{})
-				if _, ok := entryMap["code"]; ok {
-					if floatVal, ok := entryMap["db_id"].(float64); ok {
-						ids = append(ids, floatVal)
-					}
-				}
-			}
-		}
-	}
-	return ids
+type IndicoAffiliationLink struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	City        string `json:"city"`
+	CountryName string `json:"country_name"`
+	CountryCode string `json:"country_code"`
+	Postcode    string `json:"postcode"`
 }
 
-func fetch(event string, id float64) (string, error) {
-	url := fmt.Sprintf("https://indico.jacow.org/event/%s/contributions/%.0f.json", event, id)
+type IndicoDetailedPerson struct {
+	ID              int                   `json:"person_id"`
+	FirstName       string                `json:"first_name"`
+	LastName        string                `json:"last_name"`
+	Email           string                `json:"email"`
+	IsSpeaker       bool                  `json:"is_speaker"`
+	AuthorType      string                `json:"author_type"`
+	Affiliation     string                `json:"affiliation"`
+	AffiliationLink IndicoAffiliationLink `json:"affiliation_link"`
+}
+
+type IndicoType struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type IndicoDetailedContribution struct {
+	AbstractId   int                    `json:"abstract_id,omitempty"`
+	CustomFields []IndicoCustomField    `json:"custom_fields"`
+	Persons      []IndicoDetailedPerson `json:"persons"`
+	Type         IndicoType             `json:"type"`
+}
+
+type Request struct {
+	Name string `json:"name"`
+}
+
+type Response struct {
+	StatusCode int               `json:"statusCode,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	Body       string            `json:"body,omitempty"`
+}
+
+type MongoAffiliationLink struct {
+	ID          int    `bson:"id"`
+	Name        string `bson:"name"`
+	City        string `bson:"city"`
+	CountryName string `bson:"country_name"`
+	CountryCode string `bson:"country_code"`
+	Postcode    string `bson:"postcode"`
+}
+
+type MongoPerson struct {
+	ID              int                  `bson:"person_id"`
+	FirstName       string               `bson:"first_name"`
+	LastName        string               `bson:"last_name"`
+	Email           string               `bson:"email"`
+	IsSpeaker       bool                 `bson:"is_speaker"`
+	AuthorType      string               `bson:"author_type"`
+	Affiliation     string               `bson:"affiliation"`
+	AffiliationLink MongoAffiliationLink `bson:"affiliation_link"`
+}
+
+type DetailedMongoContribution struct {
+	AbstractID       int           `bson:"abstract_id,omitempty"`
+	Persons          []MongoPerson `bson:"persons"`
+	IsDuplicate      bool          `bson:"is_duplicate"`
+	ContributionType string        `bson:"contribution_type"`
+}
+
+func fetch(url string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("INDICO_AUTH"))
-
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -99,79 +117,177 @@ func fetch(event string, id float64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	return string(body), nil
 }
 
-type Request struct {
-	Name string `json:"name"`
+func currentConferences() ([]int, error) {
+	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_AUTH"))
+
+	client, connectErr := mongo.Connect(context.Background(), clientOptions)
+	if connectErr != nil {
+		return nil, fmt.Errorf("error connecting to MongoDB: %s", connectErr.Error())
+	}
+
+	collection := client.Database("author-title").Collection("conferences")
+
+	// Print the ID of all items in this collection
+	cursor, findError := collection.Find(context.Background(), bson.D{})
+	if findError != nil {
+		return nil, fmt.Errorf("error finding conferences: %s", findError.Error())
+	}
+	defer func(cursor *mongo.Cursor, ctx context.Context) {
+		_ = cursor.Close(ctx)
+	}(cursor, context.Background())
+
+	var ids []int
+	for cursor.Next(context.Background()) {
+		var conference MongoConference
+
+		if decodeErr := cursor.Decode(&conference); decodeErr != nil {
+			return nil, fmt.Errorf("error decoding conference: %s", decodeErr.Error())
+		}
+
+		if conference.End.After(time.Now()) {
+			ids = append(ids, conference.ID)
+		}
+	}
+
+	return ids, nil
 }
 
-type Response struct {
-	StatusCode int               `json:"statusCode,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
+func getCurrentContributions(collection mongo.Collection, conferenceId int) ([]MongoContribution, error) {
+	cursor, findError := collection.Find(context.Background(), bson.D{{"conferenceId", conferenceId}})
+	if findError != nil {
+		return nil, fmt.Errorf("error finding contributions: %s", findError.Error())
+	}
+	defer func(cursor *mongo.Cursor, ctx context.Context) {
+		_ = cursor.Close(ctx)
+	}(cursor, context.Background())
+	var contributions []MongoContribution
+	for cursor.Next(context.Background()) {
+		var contribution MongoContribution
+		if decodeErr := cursor.Decode(&contribution); decodeErr != nil {
+			return nil, fmt.Errorf("error decoding conference: %s", decodeErr.Error())
+		}
+		contributions = append(contributions, contribution)
+	}
+
+	return contributions, nil
 }
 
-func Main(in Request) (*Response, error) {
-	event := "41" // Replace with your event ID
+func indicoPersonToMongoPerson(entry IndicoDetailedPerson) MongoPerson {
+	return MongoPerson{
+		ID:          entry.ID,
+		FirstName:   entry.FirstName,
+		LastName:    entry.LastName,
+		Email:       entry.Email,
+		IsSpeaker:   entry.IsSpeaker,
+		AuthorType:  entry.AuthorType,
+		Affiliation: entry.Affiliation,
+		AffiliationLink: MongoAffiliationLink{
+			ID:          entry.AffiliationLink.ID,
+			Name:        entry.AffiliationLink.Name,
+			City:        entry.AffiliationLink.City,
+			CountryName: entry.AffiliationLink.CountryName,
+			CountryCode: entry.AffiliationLink.CountryCode,
+			Postcode:    entry.AffiliationLink.Postcode,
+		},
+	}
+}
 
-	space, err := connect()
+func indicoDetailedContributionToMongoContribution(entry IndicoDetailedContribution) DetailedMongoContribution {
+	var persons []MongoPerson
+	for _, person := range entry.Persons {
+		persons = append(persons, indicoPersonToMongoPerson(person))
+	}
+
+	isDuplicate := false
+	for _, customField := range entry.CustomFields {
+		if customField.Name == "duplicate_of" && customField.Value != "" {
+			isDuplicate = true
+		}
+	}
+
+	return DetailedMongoContribution{
+		AbstractID:       entry.AbstractId,
+		Persons:          persons,
+		IsDuplicate:      isDuplicate,
+		ContributionType: entry.Type.Name,
+	}
+}
+
+func fetchAndUpdateDetails(conferenceId int, contributionId int, collection mongo.Collection) error {
+	detailsContributionContent, err := fetch(fmt.Sprintf("https://indico.jacow.org/event/%d/contributions/%d.json", conferenceId, contributionId))
 	if err != nil {
-		return &Response{
-			Body: fmt.Sprintf("Error connecting to S3: %s", err.Error()),
-		}, nil
+		return err
 	}
-
-	sessions, err := download(space, "sessions/"+event+".json")
+	var detailedContribution IndicoDetailedContribution
+	if err := json.Unmarshal([]byte(detailsContributionContent), &detailedContribution); err != nil {
+		return fmt.Errorf("unable to parse json: %s", err.Error())
+	}
+	_, err = collection.UpdateOne(context.Background(), bson.D{{"_id", contributionId}}, bson.D{
+		{"$set", indicoDetailedContributionToMongoContribution(detailedContribution)},
+	})
 	if err != nil {
-		return &Response{
-			Body: fmt.Sprintf("Error downloading sessions: %s", err.Error()),
-		}, nil
+		return err
 	}
 
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(sessions), &data); err != nil {
-		return &Response{
-			Body: fmt.Sprintf("Error decoding JSON: %s", err.Error()),
-		}, nil
+	return nil
+}
+
+func fetchConferenceContributions(conferenceId int) error {
+	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_AUTH"))
+	client, connectErr := mongo.Connect(context.Background(), clientOptions)
+	if connectErr != nil {
+		return fmt.Errorf("error connecting to MongoDB: %s", connectErr.Error())
 	}
+	collection := client.Database("author-title").Collection("contributions")
+	contributions, err := getCurrentContributions(*collection, conferenceId)
 
-	ids := getIds(data)
-
+	if err != nil {
+		return err
+	}
 	var wg sync.WaitGroup
 	maxWorkers := 8
-	idsChan := make(chan float64, maxWorkers)
+	idsChan := make(chan int, maxWorkers)
 
 	for i := 0; i < maxWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for id := range idsChan {
-				contribution, err := fetch(event, id)
-
+				err := fetchAndUpdateDetails(conferenceId, id, *collection)
 				if err != nil {
-					fmt.Printf("Error fetching contribution: %s\n", err.Error())
-					continue
-				}
-
-				err = upload(space, fmt.Sprintf("contributions/%s/%.0f.json", event, id), contribution)
-				if err != nil {
-					fmt.Printf("Error uploading contribution: %s\n", err.Error())
+					fmt.Printf("error fetching contribution details: %s", err.Error())
 				}
 			}
 		}()
 	}
 
-	for _, id := range ids {
-		idsChan <- id
+	for _, contribution := range contributions {
+		idsChan <- contribution.ID
 	}
-
 	close(idsChan)
 
-	wg.Wait()
+	return nil
+}
+
+func Main(in Request) (*Response, error) {
+
+	ids, err := currentConferences()
+	if err != nil {
+		return nil, fmt.Errorf("error finding current conferences: %s", err.Error())
+	}
+
+	for _, id := range ids {
+		err := fetchConferenceContributions(id)
+
+		if err != nil {
+			return nil, fmt.Errorf("error fetching conference contributions: %s", err.Error())
+		}
+	}
 
 	return &Response{
-		Body: fmt.Sprintf("Event ID: %s: %d Contributions downloaded", event, len(ids)),
+		Body: fmt.Sprintf("Updated details for %d conferences", len(ids)),
 	}, nil
 }
