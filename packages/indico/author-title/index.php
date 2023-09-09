@@ -1,13 +1,11 @@
 <?php
 
-use App\Connector\Mongo;
-use App\Connector\Parser;
-use App\Model\Paper;
+use App\Connector\Spaces;
+use App\Parser\Session;
+use App\Parser\Timetable;
 
 function main(array $args): array
 {
-    $indico = new Parser();
-
     $event = $args['event'] ?? null;
 
     if ($event === null) {
@@ -17,22 +15,35 @@ function main(array $args): array
     if (filter_var($event, FILTER_VALIDATE_INT) === false) {
         return ['body' => "Not a valid event id"];
     }
-    $event = (int)$event;
 
-    $papers = $indico->getContributions($event);
+    $spaces = new Spaces($_ENV["SPACES_KEY"], $_ENV["SPACES_SECRET"]);
 
-    /** @var Paper $paper */
-    foreach ($papers as &$paper) {
-        $paper->setEvent($event);
-    }
+    $sessions = $spaces->read("sessions/$event.json");
+    $sessionParser = new Session();
+    $papers = $sessionParser->getContributions($sessions);
 
-    [$papers, $authors, $institutes] = normalize($papers);
+    $authors = $sessionParser->getAuthors();
+    $institutes = $sessionParser->getInstitutes();
+    $papers = $sessionParser->getPapers();
+    $contributions = $sessionParser->getContributors();
 
-//    $mongo->bulkWrite("authors", $authors);
-//    $mongo->bulkWrite("institutes", $institutes);
-//    $mongo->bulkReplace(["event" => $event], $papers);
+    $timetable = $spaces->read("timetable/$event.json");
+    $timetableParser = new Timetable($authors, $institutes, $papers, $contributions);
+    $timetableParser->getContributions($timetable);
+
+//    /** @var Paper $paper */
+//    foreach ($papers as $paper) {
+//        $paper->setEvent($event);
+//    }
+
+
 
     return [
-        'body' => ["Papers downloaded: " . count($papers)],
+        'body' => [
+            "papers" => count($papers),
+            "authors" => count($authors),
+            "institutes" => count($institutes),
+            "contributions" => count($contributions),
+        ],
     ];
 }

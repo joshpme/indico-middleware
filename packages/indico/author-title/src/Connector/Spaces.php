@@ -42,8 +42,6 @@ class Spaces
         return $this->client->getObject([
             'Bucket' => $bucket,
             'Key' => $name
-        ]);
+        ])->get('Body')->getContents();
     }
-
-
 }

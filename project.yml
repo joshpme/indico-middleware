@@ -6,8 +6,19 @@ packages:
       SPACES_KEY: "${SPACES_KEY}"
       SPACES_SECRET: "${SPACES_SECRET}"
     functions:
+      - name: contributions
+        runtime: go:1.20
+        web: false
+        limits:
+          timeout: 180000
+      - name: events
+        runtime: go:1.20
+        web: false
+        limits:
+          timeout: 180000
       - name: fetch
         runtime: php:8.2
+        web: false
         limits:
           timeout: 60000
       - name: author-title

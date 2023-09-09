@@ -16,10 +16,12 @@ function main(array $args): array
         return ['body' => "Not a valid event id"];
     }
 
+
     $contents = $indico->getSessions($event);
 
     $spaces = new Spaces($_ENV["SPACES_KEY"], $_ENV["SPACES_SECRET"]);
-    $spaces->upload($contents, "sessions/$event.json");
+    $spaces->upload($indico->getSessions($event), "sessions/$event.json");
+    $spaces->upload($indico->getTimetable($event), "timetable/$event.json");
 
     return [
         'body' => "Event ID: $event: Sessions downloaded",

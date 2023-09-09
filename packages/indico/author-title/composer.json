@@ -7,7 +7,8 @@
   },
   "require": {
     "php": "^8.2.0",
-    "aws/aws-sdk-php": "^3.281"
+    "aws/aws-sdk-php": "^3.281",
+    "vlucas/phpdotenv": "^5.5"
   },
   "config": {
     "sort-packages": true,

@@ -2,41 +2,20 @@
 
 namespace App\Model;
 
-class Paper implements \JsonSerializable {
+class Paper {
     protected int $id;
     protected int $event;
     protected string $code;
     protected string $title;
+    protected string $abstract;
 
     /**
-     * @var array|Author[]
+     * @var array|Contributor[]
      */
-    protected array $authors;
-
-    /**
-     * @var array|Author[]
-     */
-    protected array $coauthors;
-    public function __construct($paper)
+    protected array $contributors;
+    public function __construct()
     {
-        $this->id = $paper["_id"];
-        $this->code = $paper["code"];
-        $this->title = $paper["title"];
-        $this->authors = $paper["authors"];
-        $this->coauthors = $paper["coauthors"];
-    }
-
-
-    public function jsonSerialize()
-    {
-        return [
-            "_id" => $this->id,
-            "event" => $this->event,
-            "paper" => $this->code,
-            "title" => $this->title,
-            "authors" => $this->authors,
-            "coauthors" => $this->coauthors
-        ];
+        $this->contributors = [];
     }
 
     public function getId(): int
@@ -77,5 +56,30 @@ class Paper implements \JsonSerializable {
     public function setCode(string $code): void
     {
         $this->code = $code;
+    }
+
+    public function getAbstract(): string
+    {
+        return $this->abstract;
+    }
+
+    public function setAbstract(string $abstract): void
+    {
+        $this->abstract = $abstract;
+    }
+
+    public function getContributors(): array
+    {
+        return $this->contributors;
+    }
+
+    public function setContributors(array $contributors): void
+    {
+        $this->contributors = $contributors;
+    }
+
+    public function addContributor(Contributor $contributor): void
+    {
+        $this->contributors[] = $contributor;
     }
 }
