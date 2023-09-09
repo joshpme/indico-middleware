@@ -1,7 +1,14 @@
 
+# Indico Middleware
 
-`CAT_publish`: even not existing or false -> CAT won't publish in the proceedings any contribution having CAT_publish set to false
+I have setup a number of scripts to fetch various bits of data from indico and consolidate them into a mongodb instance.
 
+A user can then query the mongodb instance to get the data they need.
 
-`duplicate_of`: a string with the programme code of the parent contribution, i.e. the contribution this one was cloned from. e.g.: SUPM001 has duplicate_of = WEPL135
-In other words, any contribution having a not-null/empty duplicate_of is not to be indexed in the refdb (the proceedings report the parent contribution as reference)
+For example:
+
+https://faas-syd1-c274eac6.doserverless.co/api/v1/web/fn-19977d5d-a466-4a2d-bfd5-e29ba32197eb/indico/find?conference=41&code=TUPA071
+
+Input is `conference: 41, code: TUPA071`
+
+Output is the paper details for that conference, including the authors the order they should appear on the paper and the affiliations.
