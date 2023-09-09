@@ -96,6 +96,8 @@ type DetailedMongoContribution struct {
 	Persons          []MongoPerson `bson:"persons"`
 	IsDuplicate      bool          `bson:"is_duplicate"`
 	ContributionType string        `bson:"contribution_type"`
+	FundingAgency    string        `bson:"funding_agency"`
+	Footnotes        string        `bson:"footnotes"`
 }
 
 func fetch(url string) (string, error) {
@@ -208,11 +210,27 @@ func indicoDetailedContributionToMongoContribution(entry IndicoDetailedContribut
 		}
 	}
 
+	fundingAgency := ""
+	for _, customField := range entry.CustomFields {
+		if customField.Name == "Funding Agency" && customField.Value != "" {
+			fundingAgency = customField.Value
+		}
+	}
+
+	footNotes := ""
+	for _, customField := range entry.CustomFields {
+		if customField.Name == "Footnotes" && customField.Value != "" {
+			footNotes = customField.Value
+		}
+	}
+
 	return DetailedMongoContribution{
 		AbstractID:       entry.AbstractId,
 		Persons:          persons,
 		IsDuplicate:      isDuplicate,
 		ContributionType: entry.Type.Name,
+		FundingAgency:    fundingAgency,
+		Footnotes:        footNotes,
 	}
 }
 

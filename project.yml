@@ -34,3 +34,8 @@ packages:
             sourceType: scheduler
             sourceDetails:
               cron: "30 0 * * *"
+      - name: find
+        runtime: go:1.20
+        web: true
+        limits:
+          timeout: 5000
