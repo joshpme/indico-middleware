@@ -8,12 +8,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
-	"time"
 )
 
 type MongoConference struct {
-	ID   int       `bson:"_id"`
-	Name time.Time `bson:"name"`
+	ID   int    `bson:"_id"`
+	Name string `bson:"name"`
 }
 type Request struct {
 	Conference string `json:"conference"`
