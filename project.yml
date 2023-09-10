@@ -39,3 +39,8 @@ packages:
         web: true
         limits:
           timeout: 5000
+      - name: conferences
+        runtime: go:1.20
+        web: true
+        limits:
+          timeout: 5000
