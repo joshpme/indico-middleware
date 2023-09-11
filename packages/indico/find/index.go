@@ -7,7 +7,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"os"
 	"strconv"
 )
 
@@ -43,9 +42,9 @@ type MongoAffiliationLink struct {
 }
 
 type MongoDetailedPerson struct {
-	ID              int                  `bson:"person_id"`
-	FirstName       string               `bson:"first_name"`
-	LastName        string               `bson:"last_name"`
+	ID        int    `bson:"person_id"`
+	FirstName string `bson:"first_name"`
+	LastName  string `bson:"last_name"`
 	// Email           string               `bson:"email"` PII
 	IsSpeaker       bool                 `bson:"is_speaker"`
 	AuthorType      string               `bson:"author_type"`
@@ -64,6 +63,118 @@ type Response struct {
 	Body       string            `json:"body,omitempty"`
 }
 
+type GeneratorOrganisation struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
+	Zipcode  string `json:"zipcode"`
+}
+
+type GeneratorAuthor struct {
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
+	Affiliations []int  `json:"affiliations"`
+}
+
+type GeneratorPayload struct {
+	Title         string                        `json:"title"`
+	Authors       map[int]GeneratorAuthor       `json:"authors"`
+	Organisations map[int]GeneratorOrganisation `json:"organisations"`
+}
+
+func getAuthorsAndOrganisations(mongoPersons []MongoPerson, affiliations []MongoAffiliationLink) (map[int]GeneratorAuthor, map[int]GeneratorOrganisation) {
+
+	authors := make(map[int]GeneratorAuthor)
+	uniqueOrganisations := make(map[int]GeneratorOrganisation)
+	organisationCount := 0
+	for _, mongoPerson := range mongoPersons {
+		var position int = -1
+		for index, organisation := range uniqueOrganisations {
+			if organisation.Name == mongoPerson.Affiliation {
+				position = index
+			}
+		}
+
+		if position == -1 {
+			uniqueOrganisations[organisationCount] = findAffiliationDetails(mongoPerson.Affiliation, affiliations)
+			position = organisationCount
+			organisationCount++
+		}
+
+		var affiliations []int
+		affiliations = append(affiliations, position)
+
+		author := GeneratorAuthor{
+			FirstName:    mongoPerson.FirstName,
+			LastName:     mongoPerson.FamilyName,
+			Affiliations: affiliations,
+		}
+
+		if _, ok := authors[mongoPerson.DisplayOrder]; ok {
+			for {
+				if _, ok := authors[mongoPerson.DisplayOrder+1]; ok {
+					mongoPerson.DisplayOrder++
+				} else {
+					break
+				}
+			}
+			authors[mongoPerson.DisplayOrder] = author
+		} else {
+			authors[mongoPerson.DisplayOrder] = author
+		}
+	}
+
+	return authors, uniqueOrganisations
+}
+
+func findAllAffiliationLinks(allPersons []MongoDetailedPerson) []MongoAffiliationLink {
+	uniqueAffiliations := make(map[int]MongoAffiliationLink)
+	for _, person := range allPersons {
+		uniqueAffiliations[person.AffiliationLink.ID] = person.AffiliationLink
+	}
+	var allAffiliations []MongoAffiliationLink
+	for _, affiliation := range uniqueAffiliations {
+		allAffiliations = append(allAffiliations, affiliation)
+	}
+	return allAffiliations
+}
+
+func findAffiliationDetails(name string, allAffiliations []MongoAffiliationLink) GeneratorOrganisation {
+	for _, affiliation := range allAffiliations {
+		if affiliation.Name == name {
+			return GeneratorOrganisation{
+				Name:     affiliation.Name,
+				Location: affiliation.City + ", " + affiliation.CountryName,
+				Zipcode:  affiliation.Postcode,
+			}
+		}
+	}
+	return GeneratorOrganisation{
+		Name:     name,
+		Location: "",
+		Zipcode:  "",
+	}
+}
+
+func mongoToGeneratorPayload(contribution MongoContribution) GeneratorPayload {
+	var mongoPersons []MongoPerson
+	mongoPersons = append(mongoPersons, *contribution.Presenters...)
+	mongoPersons = append(mongoPersons, *contribution.Authors...)
+	for i := 0; i < len(mongoPersons); i++ {
+		for j := 0; j < len(mongoPersons)-1; j++ {
+			if mongoPersons[j].DisplayOrder > mongoPersons[j+1].DisplayOrder {
+				mongoPersons[j], mongoPersons[j+1] = mongoPersons[j+1], mongoPersons[j]
+			}
+		}
+	}
+	affiliations := findAllAffiliationLinks(contribution.Persons)
+	authors, uniqueOrganisations := getAuthorsAndOrganisations(mongoPersons, affiliations)
+	return GeneratorPayload{
+		Title:         contribution.Title,
+		Authors:       authors,
+		Organisations: uniqueOrganisations,
+	}
+}
+
 func Main(in Request) (*Response, error) {
 
 	// Convert in.Conference to int
@@ -72,7 +183,7 @@ func Main(in Request) (*Response, error) {
 		return nil, fmt.Errorf("error converting conference id to int: %s", err.Error())
 	}
 
-	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_AUTH"))
+	clientOptions := options.Client().ApplyURI("mongodb+srv://refsearch:HeAJusF3ewW3OL6s@jacow-refsearch.0juoeiz.mongodb.net/?retryWrites=true&w=majority")
 
 	client, connectErr := mongo.Connect(context.Background(), clientOptions)
 	if connectErr != nil {
@@ -90,13 +201,18 @@ func Main(in Request) (*Response, error) {
 		return nil, fmt.Errorf("error finding documents: %s", findError.Error())
 	}
 
-	var contributions []MongoContribution
+	var contributions []MongoContribution = make([]MongoContribution, 0)
 	if err := cursor.All(context.Background(), &contributions); err != nil {
 		return nil, fmt.Errorf("error decoding documents: %s", err.Error())
 	}
 
+	var output []GeneratorPayload = make([]GeneratorPayload, 0)
+	for _, contribution := range contributions {
+		output = append(output, mongoToGeneratorPayload(contribution))
+	}
+
 	// Output as Json
-	jsonBytes, err := json.Marshal(contributions)
+	jsonBytes, err := json.Marshal(output)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling documents: %s", err.Error())
 	}
@@ -107,4 +223,17 @@ func Main(in Request) (*Response, error) {
 			"Content-Type": "application/json",
 		},
 	}, nil
+}
+
+func main() {
+	// Test
+	in := Request{
+		Conference: "41",
+		Code:       "TUPA071",
+	}
+	out, err := Main(in)
+	if err != nil {
+		fmt.Println("Error")
+	}
+	fmt.Println(out)
 }
