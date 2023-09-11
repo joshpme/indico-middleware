@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"os"
 	"strconv"
 )
 
@@ -183,7 +184,7 @@ func Main(in Request) (*Response, error) {
 		return nil, fmt.Errorf("error converting conference id to int: %s", err.Error())
 	}
 
-	clientOptions := options.Client().ApplyURI("mongodb+srv://refsearch:HeAJusF3ewW3OL6s@jacow-refsearch.0juoeiz.mongodb.net/?retryWrites=true&w=majority")
+	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_AUTH"))
 
 	client, connectErr := mongo.Connect(context.Background(), clientOptions)
 	if connectErr != nil {
@@ -223,17 +224,4 @@ func Main(in Request) (*Response, error) {
 			"Content-Type": "application/json",
 		},
 	}, nil
-}
-
-func main() {
-	// Test
-	in := Request{
-		Conference: "41",
-		Code:       "TUPA071",
-	}
-	out, err := Main(in)
-	if err != nil {
-		fmt.Println("Error")
-	}
-	fmt.Println(out)
 }
